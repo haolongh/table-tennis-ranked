@@ -56,6 +56,17 @@ class DatabaseHandler:
                 FOREIGN KEY(match_id) REFERENCES matches(match_id)
             );
             -- Keep existing tables from previous definition --
+                           
+            CREATE TABLE IF NOT EXISTS PlayerRatingHistory (
+                history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id INTEGER NOT NULL,
+                match_id INTEGER, -- Optional: Link to the specific match
+                timestamp DATETIME NOT NULL,
+                mu_after REAL NOT NULL,
+                sigma_after REAL NOT NULL,
+                FOREIGN KEY (player_id) REFERENCES Players (player_id) ON DELETE CASCADE
+                -- Optional FOREIGN KEY (match_id) REFERENCES Matches (match_id)
+            );
         ''')
 
     @contextmanager

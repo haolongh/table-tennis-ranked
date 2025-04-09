@@ -1,5 +1,6 @@
 # core/match_processor.py
-from trueskill import Rating
+import math
+from trueskill import Rating, TrueSkill
 from datetime import datetime
 from database.db_handler import DatabaseHandler
 from core.models import Player, Match
@@ -9,6 +10,7 @@ class MatchProcessor:
     def __init__(self, db_name='rankings.db'):
         self.db_handler = DatabaseHandler(db_name)
         self.trueskill = TrueSkillSystem()
+        self.trueskill_env = TrueSkill()
 
     def add_player(self, name: str) -> Player:
         rating = self.trueskill.create_rating()
@@ -208,7 +210,7 @@ class MatchProcessor:
         row = cursor.fetchone()
         if not row:
             raise ValueError(f"Player {player_id} not found")
-        return Player(*row)
+        return Player(player_id=row[0], name=row[1], mu=row[2], sigma=row[3], last_updated=row[4])
 
     def _update_matchup_stats(self, p1_id: int, p2_id: int, winner: int, cursor):
         a, b = sorted((p1_id, p2_id))
@@ -462,3 +464,128 @@ class MatchProcessor:
             return {'name': f"Tied between {names}", 'rate': top['win_rate']}
         
         return {'name': top['name'], 'rate': top['win_rate']}
+    
+    def get_rating_history(self, player_id: int) -> list[dict]:
+        """Get historical ratings with match sequence numbers"""
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get initial rating
+            cursor.execute('''
+                SELECT mu, sigma, last_updated 
+                FROM players 
+                WHERE player_id = ?
+            ''', (player_id,))
+            initial = cursor.fetchone()
+            if not initial:
+                raise ValueError(f"Player {player_id} not found")
+            
+            history = [{
+                'mu': initial[0],
+                'sigma': initial[1],
+                'match_num': 0,
+                'timestamp': datetime.fromisoformat(initial[2])
+            }]
+
+            # Get match-based ratings
+            cursor.execute('''
+                SELECT rh.mu, rh.sigma, m.timestamp 
+                FROM ratings_history rh
+                JOIN matches m ON rh.match_id = m.match_id
+                WHERE rh.player_id = ?
+                ORDER BY m.timestamp ASC
+            ''', (player_id,))
+            
+            for idx, row in enumerate(cursor.fetchall(), start=1):
+                history.append({
+                    'mu': row[0],
+                    'sigma': row[1],
+                    'match_num': idx,
+                    'timestamp': datetime.fromisoformat(row[2])
+                })
+                
+            return history
+    
+    def get_unified_rating_history(self, player_id: int) -> list[dict]:
+        """Get player's ratings aligned with global match sequence"""
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all matches in chronological order
+            cursor.execute('''
+                SELECT match_id, timestamp 
+                FROM matches 
+                ORDER BY timestamp ASC
+            ''')
+            all_matches = [row[0] for row in cursor.fetchall()]
+            
+            # Get player's rating changes with match IDs
+            cursor.execute('''
+                SELECT rh.mu, rh.sigma, m.match_id, m.timestamp
+                FROM ratings_history rh
+                JOIN matches m ON rh.match_id = m.match_id
+                WHERE rh.player_id = ?
+                ORDER BY m.timestamp ASC
+            ''', (player_id,))
+            player_changes = {row[2]: (row[0], row[1]) for row in cursor.fetchall()}
+            
+            # Get initial rating
+            cursor.execute('SELECT mu, sigma FROM players WHERE player_id = ?', (player_id,))
+            current_mu, current_sigma = cursor.fetchone()
+            
+            # Build unified timeline
+            history = []
+            for global_match_num, match_id in enumerate(all_matches, start=1):
+                if match_id in player_changes:
+                    current_mu, current_sigma = player_changes[match_id]
+                history.append({
+                    'global_match_num': global_match_num,
+                    'mu': current_mu,
+                    'sigma': current_sigma
+                })
+                
+            return history
+        
+    def predict_win_probability(self, player1_id: int, player2_id: int) -> dict:
+        """
+        Predicts the win probability between two players based on their current ratings.
+        """
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            try:
+                player1 = self._get_player(player1_id, cursor)
+                player2 = self._get_player(player2_id, cursor)
+            except ValueError as e:
+                raise e # Re-raise the error if a player isn't found
+
+        # Use the formula based on TrueSkill principles
+        # delta_mu = mu1 - mu2
+        # denom = sqrt(2 * beta^2 + sigma1^2 + sigma2^2)
+        # probability = cdf(delta_mu / denom) where cdf is the cumulative distribution function of a standard normal distribution
+        # Alternatively, the formula from bayesian.py uses an equivalent logistic function: 1 / (1 + exp(-delta_mu / denominator))
+
+        delta_mu = player1.mu - player2.mu
+        sum_sigma_sq = player1.sigma**2 + player2.sigma**2
+        beta_sq = self.trueskill_env.beta**2 # Access beta from the TrueSkill instance
+
+        denominator = math.sqrt(2 * beta_sq + sum_sigma_sq)
+
+        if denominator == 0:
+             # Avoid division by zero; implies absolute certainty (rare)
+             # If delta_mu > 0, p1 wins; if < 0, p2 wins; if == 0, it's a 50/50 toss-up theoretically
+             prob_p1_wins = 0.5 if delta_mu == 0 else (1.0 if delta_mu > 0 else 0.0)
+        else:
+            # Using the logistic function approach equivalent to CDF for win probability
+            prob_p1_wins = 1 / (1 + math.exp(-delta_mu / denominator))
+
+
+        prob_p2_wins = 1.0 - prob_p1_wins
+
+        return {
+            'player1_id': player1_id,
+            'player1_name': player1.name,
+            'player1_win_prob': prob_p1_wins,
+            'player2_id': player2_id,
+            'player2_name': player2.name,
+            'player2_win_prob': prob_p2_wins
+        }
