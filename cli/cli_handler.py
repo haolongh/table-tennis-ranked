@@ -1,8 +1,12 @@
 import argparse
 from core.match_processor import MatchProcessor
+from core.prediction_model import EnhancedPredictor, FORM_LOOKBACK_GAMES
+import os
+from datetime import datetime
 
 class TableTennisCLI:
     def __init__(self):
+        self.predictor = EnhancedPredictor() 
         self.processor = MatchProcessor()
         self.parser = argparse.ArgumentParser(
             description='Table Tennis Ranking System'
@@ -58,6 +62,21 @@ class TableTennisCLI:
 
         stats_parser = subparsers.add_parser('player-stats', help='Show detailed player statistics')
         stats_parser.add_argument('player_id', type=int, help='Player ID to show stats for')
+
+        #player progression graph
+        graph_parser = subparsers.add_parser('graph', help='Generate rating history graph')
+        graph_parser.add_argument('player_id', type=int, help='Player ID to graph') 
+
+        #vs graphs
+        graphvs_parser = subparsers.add_parser('graphvs', 
+                        help='Compare rating progression of two players')
+        graphvs_parser.add_argument('id1', type=int, help='First player ID')
+        graphvs_parser.add_argument('id2', type=int, help='Second player ID')  
+
+        predict_parser = subparsers.add_parser('predictw',
+                                         help='Predict win probability between two players')
+        predict_parser.add_argument('id1', type=int, help='First player ID')
+        predict_parser.add_argument('id2', type=int, help='Second player ID')  
 
 
 
@@ -175,6 +194,145 @@ class TableTennisCLI:
             except Exception as e:
                 print(f"Error: {str(e)}")
 
+        elif args.command == 'graph':
+            try:
+                import matplotlib.pyplot as plt
+                # Ensure graphs directory exists
+                os.makedirs('graphs', exist_ok=True)
+                
+                history = self.processor.get_rating_history(args.player_id)
+                player_name = self._get_player_name(args.player_id)
+
+                if not history:
+                    print(f"No rating history found for {player_name}")
+                    return
+
+                match_nums = [point['match_num'] for point in history]
+                mus = [point['mu'] for point in history]
+                sigmas = [point['sigma'] for point in history]
+
+                plt.figure(figsize=(10, 6))
+                plt.plot(match_nums, mus, marker='o', linestyle='-', color='b', label='Skill (μ)')
+                plt.fill_between(match_nums, 
+                                [mu - sigma for mu, sigma in zip(mus, sigmas)],
+                                [mu + sigma for mu, sigma in zip(mus, sigmas)],
+                                color='b', alpha=0.1, label='Uncertainty (±σ)')
+
+                plt.title(f"Rating Progression for {player_name} (ID: {args.player_id})")
+                plt.xlabel("Match Number")
+                plt.ylabel("Skill Rating")
+                plt.xticks(match_nums)  # Force integer ticks
+                plt.grid(True)
+                plt.legend()
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"graphs/player_{args.player_id}_{timestamp}.png"
+                plt.savefig(filename)
+                plt.close()
+                
+                print(f"Graph saved to {filename}")
+                
+            except ImportError:
+                print("Error: matplotlib is required for graphing. Install with 'pip install matplotlib'")
+            except Exception as e:
+                print(f"Error generating graph: {str(e)}")
+
+        # In cli_handler.py's graphvs command handler:
+        elif args.command == 'graphvs':
+            try:
+                import matplotlib.pyplot as plt
+                os.makedirs('graphs', exist_ok=True)
+                
+                # Get unified histories
+                p1_history = self.processor.get_unified_rating_history(args.id1)
+                p2_history = self.processor.get_unified_rating_history(args.id2)
+                p1_name = self._get_player_name(args.id1)
+                p2_name = self._get_player_name(args.id2)
+
+                plt.figure(figsize=(12, 7))
+                
+                # Plot Player 1 (Blue) with uncertainty
+                p1_x = [p['global_match_num'] for p in p1_history]
+                p1_y = [p['mu'] for p in p1_history]
+                p1_sigma = [p['sigma'] for p in p1_history]
+                p1_active = [p['mu'] != p1_history[i-1]['mu'] if i >0 else True for i, p in enumerate(p1_history)]
+                
+                # Main line and confidence band
+                plt.plot(p1_x, p1_y, color='blue', linestyle='-', label=f'{p1_name} (ID: {args.id1})')
+                plt.fill_between(p1_x, 
+                                [mu - sigma for mu, sigma in zip(p1_y, p1_sigma)],
+                                [mu + sigma for mu, sigma in zip(p1_y, p1_sigma)],
+                                color='blue', alpha=0.1)
+                # Active match markers
+                plt.scatter(
+                    [x for x, active in zip(p1_x, p1_active) if active],
+                    [y for y, active in zip(p1_y, p1_active) if active],
+                    color='blue', marker='o', s=40, edgecolor='white'
+                )
+
+                # Plot Player 2 (Red) with uncertainty
+                p2_x = [p['global_match_num'] for p in p2_history]
+                p2_y = [p['mu'] for p in p2_history]
+                p2_sigma = [p['sigma'] for p in p2_history]
+                p2_active = [p['mu'] != p2_history[i-1]['mu'] if i >0 else True for i, p in enumerate(p2_history)]
+                
+                # Main line and confidence band
+                plt.plot(p2_x, p2_y, color='red', linestyle='-', label=f'{p2_name} (ID: {args.id2})')
+                plt.fill_between(p2_x, 
+                                [mu - sigma for mu, sigma in zip(p2_y, p2_sigma)],
+                                [mu + sigma for mu, sigma in zip(p2_y, p2_sigma)],
+                                color='red', alpha=0.1)
+                # Active match markers
+                plt.scatter(
+                    [x for x, active in zip(p2_x, p2_active) if active],
+                    [y for y, active in zip(p2_y, p2_active) if active],
+                    color='red', marker='s', s=40, edgecolor='white'
+                )
+
+                plt.title(f"Rating Comparison: {p1_name} vs {p2_name}\nShaded areas show ±1σ uncertainty")
+                plt.xlabel("Global Match Number (All Matches in System)")
+                plt.ylabel("Skill Rating (μ)")
+                plt.grid(True)
+                plt.legend()
+                
+                # Generate filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"graphs/vs_{args.id1}_{args.id2}_{timestamp}.png"
+                plt.savefig(filename, bbox_inches='tight', dpi=120)
+                plt.close()
+                
+                print(f"Comparison graph with uncertainty saved to {filename}")
+
+            except ImportError:
+                print("Error: matplotlib is required. Install with 'pip install matplotlib'")
+            except Exception as e:
+                print(f"Error generating graph: {str(e)}")
+
+# cli/cli_handler.py
+        elif args.command == 'predictw':
+            try:
+                prediction = self.predictor.predict_win_probability(args.id1, args.id2)
+
+                p1_name = prediction['player1_name']
+                p2_name = prediction['player2_name']
+
+                print(f"\nWin Prediction: {p1_name} (ID: {args.id1}) vs {p2_name} (ID: {args.id2})")
+                print("-" * 50)
+                print(f"Historical Model Prediction (A): {prediction['model_a']*100:.1f}%")
+                print(f"TrueSkill Model Prediction (B): {prediction['model_b']*100:.1f}%")
+                print("-" * 50)
+                print(f"Final Blended Prediction ({prediction['model_weights']['historical']*100:.0f}% A + {prediction['model_weights']['trueskill']*100:.0f}% B):")
+                print(f"  {p1_name}: {prediction['final_prediction']*100:.1f}%")
+                print(f"  {p2_name}: {(1 - prediction['final_prediction'])*100:.1f}%")
+
+            except ValueError as e:
+                print(f"Error: {e}")
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+
+
+
     def _get_player_name(self, player_id: int) -> str:
         """Get player name safely"""
         try:
@@ -185,9 +343,11 @@ class TableTennisCLI:
                 return result[0] if result else "Unknown Player"
         except Exception:
             return "Unknown Player"
+        
+        
 
 
 if __name__ == '__main__':
     TableTennisCLI().run()
 
-#am always better than kelvin
+
