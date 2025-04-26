@@ -1,1 +1,1 @@
-CLI tool caus rankade pmo
+GUI tool to rank people caus Rankade is ass, people who pays for rankade premium got scammed
