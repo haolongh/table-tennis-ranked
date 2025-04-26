@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Table Tennis Rankings{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-content">
+            <a href="{{ url_for('index') }}" class="logo-link">
+                <div class="logo">TTR Sports</div>
+              </a>
+              
+            <div class="nav-links">
+                <a href="/">Home</a>
+                <a href="/matches">Matches</a>
+                <a href="/predict">Predictions</a>
+                <a href="/weekly-wrapped">Weekly Wrapped</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            &copy; {{ year or 2025 }} Table Tennis Ranked by Haolong H
+        </div>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

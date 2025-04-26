@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="prediction-banner">
+  <h1>🎯 Match Predictions</h1>
+  <div class="banner-line"></div>
+  <p class="banner-sub">See predicted outcomes before you play.</p>
+</div>
+
+<form method="GET" action="/predict" class="prediction-form">
+  <div class="player-compare-box">
+    <div class="player-select">
+      <label for="player1">Player 1</label>
+      <select name="player1" required onchange="this.form.submit()">
+        <option value="">Select Player</option>
+        {% for p in players %}
+          <option value="{{ p.id }}" {% if player1 and player1.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="vs-divider">vs</div>
+
+    <div class="player-select">
+      <label for="player2">Player 2</label>
+      <select name="player2" required onchange="this.form.submit()">
+        <option value="">Select Player</option>
+        {% for p in players %}
+          <option value="{{ p.id }}" {% if player2 and player2.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</form>
+
+{% if player1 and player2 %}
+<div class="compare-stats-box">
+  <div class="player-stat-card">
+    <h3>{{ player1.name }}</h3>
+    <ul>
+      <li><strong>μ:</strong> {{ player1.mu }}</li>
+      <li><strong>σ:</strong> {{ player1.sigma }}</li>
+      <li><strong>Matches:</strong> {{ player1.played }}</li>
+      <li><strong>Wins:</strong> {{ player1.wins }}</li>
+      <li><strong>Losses:</strong> {{ player1.losses }}</li>
+      <li>
+        <strong>Form:</strong>
+        {% for result in player1.form %}
+          <span class="form-pill {{ 'win' if result == 'W' else 'loss' }}">{{ result }}</span>
+        {% endfor %}
+      </li>
+    </ul>
+  </div>
+
+  <div class="vertical-divider"></div>
+
+  <div class="player-stat-card">
+    <h3>{{ player2.name }}</h3>
+    <ul>
+      <li><strong>μ:</strong> {{ player2.mu }}</li>
+      <li><strong>σ:</strong> {{ player2.sigma }}</li>
+      <li><strong>Matches:</strong> {{ player2.played }}</li>
+      <li><strong>Wins:</strong> {{ player2.wins }}</li>
+      <li><strong>Losses:</strong> {{ player2.losses }}</li>
+      <li>
+        <strong>Form:</strong>
+        {% for result in player2.form %}
+          <span class="form-pill {{ 'win' if result == 'W' else 'loss' }}">{{ result }}</span>
+        {% endfor %}
+      </li>
+    </ul>
+  </div>
+</div>
+
+{% if h2h %}
+<div class="h2h-section">
+  <h2>🤝 Head to Head</h2>
+  <p><strong>Total Matches:</strong> {{ h2h.total_matches }}</p>
+  <div class="h2h-stats">
+    <div class="h2h-box">
+      <h3>{{ player1.name }}</h3>
+      <p><strong>Wins:</strong> {{ h2h.wins_player1 }}</p>
+    </div>
+    <div class="h2h-box">
+      <h3>{{ player2.name }}</h3>
+      <p><strong>Wins:</strong> {{ h2h.wins_player2 }}</p>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if p1_history and p2_history %}
+<div class="progression-graph-section">
+  <h2>📈 Rating Progression</h2>
+  <p class="graph-sub">With shaded areas showing ±1σ uncertainty</p>
+  <div style="height: 260px;">
+    <canvas id="progressionChart"></canvas>
+  </div>
+  <script id="p1Data" type="application/json">{{ p1_history | tojson }}</script>
+  <script id="p2Data" type="application/json">{{ p2_history | tojson }}</script>
+  <script id="playerNames" type="application/json">
+    { "player1Name": "{{ player1.name | e }}", "player2Name": "{{ player2.name | e }}" }
+  </script>
+</div>
+{% endif %}
+
+{% if prediction %}
+<div class="prediction-result">
+  <h2>🤖 Hypergigachad Win Rate Prediction Model</h2>
+  <div class="prediction-grid">
+    <div class="prediction-box">
+      <h3>{{ prediction.player1_name }}</h3>
+      <p class="win-prob">{{ "%.1f"|format(prediction.player1_win_prob * 100) }}%</p>
+      <span>Win Probability</span>
+    </div>
+    <div class="prediction-vs">vs</div>
+    <div class="prediction-box">
+      <h3>{{ prediction.player2_name }}</h3>
+      <p class="win-prob">{{ "%.1f"|format(prediction.player2_win_prob * 100) }}%</p>
+      <span>Win Probability</span>
+    </div>
+  </div>
+</div>
+{% elif player1 and player2 %}
+<div class="prediction-result" style="text-align: center; padding: 20px; color: #777;">
+  <p>Could not generate prediction for this matchup.</p>
+</div>
+
+  <details class="prediction-details">
+    <summary>View model breakdown</summary>
+    <p><strong>Historical Model (A):</strong> {{ "%.1f"|format(prediction.model_a * 100) }}%</p>
+    <p><strong>TrueSkill Model (B):</strong> {{ "%.1f"|format(prediction.model_b * 100) }}%</p>
+    <p>
+      <strong>Final Blend:</strong>
+      {{ prediction.model_weights.historical * 100 | round(0) }}% A +
+      {{ prediction.model_weights.trueskill * 100 | round(0) }}% B
+    </p>
+    <p>
+      {{ prediction.player1_name }}: {{ "%.1f"|format(prediction.player1_win_prob * 100) }}%<br>
+      {{ prediction.player2_name }}: {{ "%.1f"|format(prediction.player2_win_prob * 100) }}%
+    </p>
+  </details>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if p1_history and p2_history %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const p1 = JSON.parse(document.getElementById("p1Data")?.textContent || "[]");
+  const p2 = JSON.parse(document.getElementById("p2Data")?.textContent || "[]");
+  const names = JSON.parse(document.getElementById("playerNames")?.textContent || "{}");
+
+  const format = (hist) => ({
+    labels: hist.map(h => h.global_match_num),
+    mu: hist.map(h => h.mu),
+    upper: hist.map(h => h.mu + h.sigma)
+  });
+
+  const d1 = format(p1), d2 = format(p2);
+  const ctx = document.getElementById("progressionChart").getContext("2d");
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [...new Set([...d1.labels, ...d2.labels])].sort((a, b) => a - b),
+      datasets: [
+        {
+          label: `${names.player1Name} μ`,
+          data: d1.mu,
+          borderColor: 'blue',
+          pointRadius: 2,
+          tension: 0.3
+        },
+        {
+          label: `${names.player1Name} ±1σ`,
+          data: d1.upper,
+          fill: '-1',
+          backgroundColor: 'rgba(0,0,255,0.08)',
+          borderColor: 'transparent',
+          pointRadius: 0
+        },
+        {
+          label: `${names.player2Name} μ`,
+          data: d2.mu,
+          borderColor: 'red',
+          pointRadius: 2,
+          tension: 0.3
+        },
+        {
+          label: `${names.player2Name} ±1σ`,
+          data: d2.upper,
+          fill: '-1',
+          backgroundColor: 'rgba(255,0,0,0.08)',
+          borderColor: 'transparent',
+          pointRadius: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { title: { display: true, text: 'Global Match Number' } },
+        y: { title: { display: true, text: 'Rating (μ)' }, beginAtZero: false }
+      }
+    }
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

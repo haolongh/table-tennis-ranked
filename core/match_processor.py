@@ -44,9 +44,9 @@ class MatchProcessor:
             # Create the match record
             cursor.execute('''
                 INSERT INTO matches 
-                (player1_id, player2_id, player1_score, player2_score)
-                VALUES (?, ?, ?, ?)
-            ''', (player1_id, player2_id, score1, score2))
+                (player1_id, player2_id, player1_score, player2_score, season)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (player1_id, player2_id, score1, score2, self._get_current_season(cursor)))
             match_id = cursor.lastrowid
 
             # Store historical ratings
@@ -249,14 +249,27 @@ class MatchProcessor:
                 WHERE player_a_id = ? AND player_b_id = ?
             ''', (a, b))
             result = cursor.fetchone()
-            
+
+            total_matches = result[0] if result else 0
+            wins_a = result[1] if result else 0
+            wins_b = result[2] if result else 0
+
+            # Remap wins to match the order user selected
+            if player1_id == a:
+                wins_player1 = wins_a
+                wins_player2 = wins_b
+            else:
+                wins_player1 = wins_b
+                wins_player2 = wins_a
+
             return {
-                'total_matches': result[0] if result else 0,
-                'wins_player1': result[1] if result else 0,
-                'wins_player2': result[2] if result else 0,
-                'player1_id': a,
-                'player2_id': b
+                'total_matches': total_matches,
+                'wins_player1': wins_player1,
+                'wins_player2': wins_player2,
+                'player1_id': player1_id,
+                'player2_id': player2_id
             }
+
         
     def remove_player(self, player_id: int):
         with self.db_handler.connection() as conn:
@@ -293,9 +306,9 @@ class MatchProcessor:
         with self.db_handler.connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT m.timestamp, 
-                    p1.name, m.player1_score,
-                    p2.name, m.player2_score
+                SELECT m.match_id, m.timestamp,
+                    p1.player_id, p1.name, m.player1_score,
+                    p2.player_id, p2.name, m.player2_score
                 FROM matches m
                 JOIN players p1 ON m.player1_id = p1.player_id
                 JOIN players p2 ON m.player2_id = p2.player_id
@@ -303,12 +316,25 @@ class MatchProcessor:
                 LIMIT ?
             ''', (limit,))
             return [{
-                'date': row[0],
-                'player1': row[1],
-                'score1': row[2],
-                'player2': row[3],
-                'score2': row[4]
+                'match_id': row[0],
+                'date': row[1],
+                'player1_id': row[2],
+                'player1': row[3],
+                'score1': row[4],
+                'player2_id': row[5],
+                'player2': row[6],
+                'score2': row[7]
             } for row in cursor.fetchall()]
+
+    def get_ratings_by_match(self, match_id: int) -> list[dict]:
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT player_id, mu
+                FROM ratings_history
+                WHERE match_id = ?
+            ''', (match_id,))
+            return [{'player_id': row[0], 'mu': row[1]} for row in cursor.fetchall()]
         
     def get_win_loss_table(self) -> list[dict]:
         with self.db_handler.connection() as conn:
@@ -589,3 +615,223 @@ class MatchProcessor:
             'player2_name': player2.name,
             'player2_win_prob': prob_p2_wins
         }
+
+    def get_player_recent_matches(self, player_id: int, limit: int = 5) -> list[dict]:
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT m.player1_id, p1.name, m.player1_score,
+                    m.player2_id, p2.name, m.player2_score,
+                    m.timestamp
+                FROM matches m
+                JOIN players p1 ON m.player1_id = p1.player_id
+                JOIN players p2 ON m.player2_id = p2.player_id
+                WHERE m.player1_id = ? OR m.player2_id = ?
+                ORDER BY m.timestamp DESC
+                LIMIT ?
+            ''', (player_id, player_id, limit))
+            
+            result = []
+            for row in cursor.fetchall():
+                p1_id, p1_name, s1, p2_id, p2_name, s2, timestamp = row
+
+                if p1_id == player_id:
+                    opponent = p2_name
+                    is_win = s1 > s2
+                else:
+                    opponent = p1_name
+                    is_win = s2 > s1
+
+                result.append({
+                    'opponent': opponent,
+                    'result': 'W' if is_win else 'L',
+                    'timestamp': timestamp  # Optional: use later for dates
+                })
+
+            return result
+        
+    def get_all_players(self):
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT player_id, name FROM players ORDER BY name")
+            return [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
+
+    def get_player_id_by_name(self, name: str) -> int:
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT player_id FROM players WHERE name = ?', (name,))
+            result = cursor.fetchone()
+            if not result:
+                raise ValueError(f"No player found with name: {name}")
+            return result[0]
+        
+    def get_weekly_summary(self, start_date, end_date):
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            player_stats = []
+
+            # Highest Climber and Biggest Thrower
+            cursor.execute('SELECT player_id, name FROM players')
+            players = cursor.fetchall()
+            climbers = []
+            for (player_id, name) in players:
+                # Get initial rating (before first match of the week)
+                cursor.execute('''
+                    SELECT rh.mu FROM ratings_history rh
+                    JOIN matches m ON rh.match_id = m.match_id
+                    WHERE rh.player_id = ? AND m.timestamp >= ? AND m.timestamp <= ?
+                    ORDER BY m.timestamp ASC LIMIT 1
+                ''', (player_id, start_date, end_date))
+                initial_mu = cursor.fetchone()
+                cursor.execute('SELECT mu FROM players WHERE player_id = ?', (player_id,))
+                final_mu = cursor.fetchone()[0]
+                delta = final_mu - (initial_mu[0] if initial_mu else final_mu)
+                climbers.append((player_id, name, delta))
+
+            # Sort climbers
+            climbers_sorted = sorted(climbers, key=lambda x: x[2], reverse=True)
+            highest_climber = climbers_sorted[0] if climbers_sorted else None
+            biggest_thrower = climbers_sorted[-1] if climbers_sorted else None
+
+            # Win Rates
+            win_rates = []
+            for (player_id, name) in players:
+                cursor.execute('''
+                    SELECT 
+                        SUM(CASE WHEN (player1_id = ? AND player1_score > player2_score) OR
+                                        (player2_id = ? AND player2_score > player1_score)
+                                THEN 1 ELSE 0 END) AS wins,
+                        COUNT(*) AS total
+                    FROM matches
+                    WHERE (player1_id = ? OR player2_id = ?) AND timestamp BETWEEN ? AND ?
+                ''', (player_id, player_id, player_id, player_id, start_date, end_date))
+                wins, total = cursor.fetchone()
+                win_rate = (wins / total) if total > 0 else 0.0
+                win_rates.append((name, win_rate))
+
+            win_rates_sorted = sorted(win_rates, key=lambda x: x[1], reverse=True)
+            highest_win = win_rates_sorted[0] if win_rates_sorted else None
+            lowest_win = win_rates_sorted[-1] if win_rates_sorted else None
+
+            # Most Frequent Match
+            cursor.execute('''
+                    SELECT player1_id, player2_id, COUNT(*) as cnt
+                    FROM matches
+                    WHERE timestamp BETWEEN ? AND ?
+                    GROUP BY player1_id, player2_id
+                    ORDER BY cnt DESC LIMIT 1
+                ''', (start_date, end_date))
+            frequent_match = cursor.fetchone()
+            
+            if frequent_match:
+                p1, p2, count = frequent_match
+                cursor.execute('SELECT name FROM players WHERE player_id IN (?, ?)', (p1, p2))
+                names = cursor.fetchall()
+                p1_name, p2_name = names[0][0], names[1][0]
+                
+                # Get wins THIS WEEK for this matchup
+                # In MatchProcessor.get_weekly_summary() method:
+                # In MatchProcessor.get_weekly_summary():
+                cursor.execute('''
+                    SELECT 
+                        SUM(CASE 
+                            WHEN (player1_id = ? AND player1_score > player2_score) OR 
+                                (player2_id = ? AND player2_score > player1_score) 
+                            THEN 1 ELSE 0 END) AS wins_p1,
+                        SUM(CASE 
+                            WHEN (player1_id = ? AND player1_score > player2_score) OR 
+                                (player2_id = ? AND player2_score > player1_score) 
+                            THEN 1 ELSE 0 END) AS wins_p2
+                    FROM matches
+                    WHERE (
+                        (player1_id = ? AND player2_id = ?) OR 
+                        (player2_id = ? AND player1_id = ?)
+                    ) AND timestamp BETWEEN ? AND ?
+                ''', (
+                    p1, p1,  # Wins for Luka (p1)
+                    p2, p2,  # Wins for Alex (p2)
+                    p1, p2,  # Matches where p1 is player1 and p2 is player2
+                    p1, p2,  # Matches where p2 is player1 and p1 is player2
+                    start_date, end_date
+                ))
+                wins_p1, wins_p2 = cursor.fetchone()
+            else:
+                p1_name = p2_name = count = wins_p1 = wins_p2 = None
+
+
+            return {
+                'highest_climber': highest_climber,
+                'biggest_thrower': biggest_thrower,
+                'highest_win_rate': highest_win,  # Directly return the tuple
+                'lowest_win_rate': lowest_win,    # Directly return the tuple
+                'most_frequent_match': (p1_name, p2_name, count, wins_p2, wins_p1)
+            }
+        
+    def _get_current_season(self, cursor) -> int:
+        cursor.execute('SELECT value FROM system_settings WHERE key = ?', ('current_season',))
+        row = cursor.fetchone()
+        if row:
+            return int(row[0])
+        else:
+            cursor.execute('INSERT INTO system_settings (key, value) VALUES (?, ?)', ('current_season', 2))
+            return 2
+
+    def get_season_ladder(self, season_id: int) -> list[Player]:
+        """Generate ladder for a specific season by reprocessing its matches"""
+        from trueskill import Rating, rate_1vs1
+        
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            # Get all matches in the season
+            cursor.execute('''
+                SELECT player1_id, player2_id, player1_score, player2_score
+                FROM matches
+                WHERE season = ?
+                ORDER BY timestamp ASC
+            ''', (season_id,))
+            matches = cursor.fetchall()
+            
+            # Initialize player ratings
+            cursor.execute('SELECT player_id FROM players')
+            players = {row[0]: Rating() for row in cursor.fetchall()}
+            
+            # Process each match
+            for p1_id, p2_id, s1, s2 in matches:
+                winner = 1 if s1 > s2 else 2
+                if winner == 1:
+                    new_p1, new_p2 = rate_1vs1(players[p1_id], players[p2_id])
+                else:
+                    new_p2, new_p1 = rate_1vs1(players[p2_id], players[p1_id])
+                players[p1_id] = new_p1
+                players[p2_id] = new_p2
+            
+            # Convert to Player objects sorted by TrueSkill
+            ladder = []
+            for player_id in players:
+                cursor.execute('SELECT name FROM players WHERE player_id = ?', (player_id,))
+                name = cursor.fetchone()[0]
+                mu = players[player_id].mu
+                sigma = players[player_id].sigma
+                ladder.append(Player(player_id, name, mu, sigma, datetime.now()))
+            
+            # Sort by TrueSkill mean minus 3*sigma
+            ladder.sort(key=lambda p: (p.mu - 3*p.sigma), reverse=True)
+            return ladder
+        
+    # In MatchProcessor class
+    def get_current_season(self) -> int:
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM system_settings WHERE key = "current_season"')
+            row = cursor.fetchone()
+            return int(row[0]) if row else 1
+
+    def get_available_seasons(self) -> list[int]:
+        with self.db_handler.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT season FROM matches ORDER BY season DESC')
+            seasons = [row[0] for row in cursor.fetchall()]
+            # Ensure season 1 exists even if no matches
+            if not seasons:
+                return [1]
+            return seasons + [1] if 1 not in seasons else seasons

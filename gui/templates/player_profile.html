@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="player-banner">
+    <div class="player-avatar">
+        <span class="player-initials">{{ player.initials }}</span>
+    </div>
+
+    <div class="player-name">
+        {{ player.name }}
+    </div>
+
+    <div class="player-stats">
+        <div class="mu-sigma-row">
+            <div class="mu-value">{{ player.mu }}</div>
+            <div class="sigma-value">{{ player.sigma }}</div>
+        </div>
+        <div class="mu-sigma-labels">
+            <div class="mu-label">Rating (μ)</div>
+            <div class="sigma-label">Uncertainty (σ)</div>
+        </div>
+    </div>
+</div>
+
+{% if stats %}
+<div style="display: flex; gap: 30px; margin-top: 30px;">
+    <!-- Stats block -->
+    <div class="player-stats-section" style="flex: 1;">
+        <h2>📊 Player Stats</h2>
+        <ul>
+            <li><strong>Peak Rating:</strong> {{ "%.1f"|format(stats.peak_rating) }}</li>
+            <li><strong>Matches Played:</strong> {{ stats.total_matches }}</li>
+            <li><strong>Wins:</strong> {{ stats.wins }}</li>
+            <li><strong>Losses:</strong> {{ stats.losses }}</li>
+            <li><strong>Win Percentage:</strong> {{ "%.1f"|format(stats.wins / stats.total_matches * 100 if stats.total_matches > 0 else 0) }}%</li>
+            <li><strong>Victim:</strong> {{ stats.victim.name }} ({{ "%.1f"|format(stats.victim.rate * 100) }}% Win Rate)</li>
+            <li><strong>Nemesis:</strong> {{ stats.nemesis.name }} ({{ "%.1f"|format(stats.nemesis.rate * 100) }}% Win Rate)</li>
+        </ul>
+    </div>
+
+    <!-- Graph block -->
+    <div style="flex: 1; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+        <canvas id="ratingChart" height="250"></canvas>
+    </div>
+</div>
+
+<!-- Embed JSON data for JS -->
+<script id="ratingData" type="application/json">
+    {{ history | tojson }}
+</script>
+{% endif %}
+
+{% if recent_matches %}
+<div class="player-history-section" style="margin-top: 40px;">
+    <h2>🕹️ Recent Matches</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Opponent</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in recent_matches %}
+            <tr>
+                <td>{{ match.opponent }}</td>
+                <td>
+                    <span class="form-pill {{ 'win' if match.result == 'W' else 'loss' }}">{{ match.result }}</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+{% endblock %}

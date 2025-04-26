@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>🏓 Table Tennis Rankings</h1>
+
+<!-- Toggle Buttons -->
+<div style="margin-bottom: 20px;">
+  <button class="table-btn active" id="btn-trueskill" onclick="toggleTable('trueskill')">TrueSkill™</button>
+  <button class="table-btn" id="btn-wlt" onclick="toggleTable('wlt')">Win/Loss</button>
+  <button class="table-btn" id="btn-seasons" onclick="toggleTable('seasons')">Seasons</button>
+</div>
+
+<!-- TrueSkill Table -->
+<div id="trueskillTable">
+  <table>
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Player</th>
+        <th>Rating (μ)</th>
+        <th>Deviation (σ)</th>
+        <th>Form</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for player in rankings %}
+      <tr class="clickable-row" data-href="/player/{{ player.id }}">
+        <td>{{ loop.index }}</td>
+        <td>{{ player.name }}</td>
+        <td>
+          {{ "%.2f"|format(player.mu) }}
+          {% if player.id in deltas %}
+            {% set delta = deltas[player.id] %}
+            {% if delta > 0 %}
+              <span style="color: #2ecc71; margin-left: 4px;">▲{{ "%.2f"|format(delta) }}</span>
+            {% elif delta < 0 %}
+              <span style="color: #e74c3c; margin-left: 4px;">▼{{ "%.2f"|format(-delta) }}</span>
+            {% endif %}
+          {% endif %}
+        </td>
+        <td>{{ "%.2f"|format(player.sigma) }}</td>
+        <td>
+          {% for result in player.form %}
+            <span class="form-pill {{ 'win' if result == 'W' else 'loss' }}">{{ result }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Win/Loss Table -->
+<div id="wltTable" style="display: none;">
+  <table id="wlt-table">
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Player</th>
+        <th><span class="sortable" data-key="played">MP <span class="sort-indicator" data-indicator="played"></span></span></th>
+        <th><span class="sortable" data-key="wins">W <span class="sort-indicator" data-indicator="wins"></span></span></th>
+        <th><span class="sortable" data-key="losses">L <span class="sort-indicator" data-indicator="losses"></span></span></th>
+        <th><span class="sortable" data-key="win_pct">Win% <span class="sort-indicator" data-indicator="win_pct"></span></span></th>
+        <th>Form</th>
+      </tr>
+    </thead>
+    <tbody id="wlt-body">
+      {% for player in wlt_table %}
+      <tr class="clickable-row" data-href="/player/{{ player.id }}">
+        <td>{{ loop.index }}</td>
+        <td>{{ player.name }}</td>
+        <td>{{ player.played }}</td>
+        <td>{{ player.wins }}</td>
+        <td>{{ player.losses }}</td>
+        <td>{{ "%.1f"|format(player.win_pct) }}%</td>
+        <td>
+          {% for result in player.form %}
+            <span class="form-pill {{ 'win' if result == 'W' else 'loss' }}">{{ result }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Seasons Table -->
+<div id="seasonsTable" style="display: none;">
+  <div class="season-selector">
+    <select id="seasonSelect" onchange="loadSeason(this.value)">
+      {% for season in available_seasons|sort(reverse=True) %}
+        <option value="{{ season }}" {% if season == current_season %}selected{% endif %}>
+          Season {{ season }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <table id="seasonLadderTable">
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Player</th>
+        <th>Rating (μ)</th>
+        <th>Deviation (σ)</th>
+      </tr>
+    </thead>
+    <tbody id="seasonLadderBody">
+      <!-- AJAX content will be loaded here -->
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleTable(view) {
+  const views = ['trueskill', 'wlt', 'seasons'];
+  const buttons = ['btn-trueskill', 'btn-wlt', 'btn-seasons'];
+  
+  // Hide all tables and remove active classes
+  views.forEach(v => document.getElementById(`${v}Table`).style.display = 'none');
+  buttons.forEach(b => document.getElementById(b).classList.remove('active'));
+  
+  // Show selected table and activate button
+  document.getElementById(`${view}Table`).style.display = 'block';
+  document.getElementById(`btn-${view}`).classList.add('active');
+  
+  // Load season data if needed
+  if(view === 'seasons') loadSeason(document.getElementById('seasonSelect').value);
+
+  if (view === 'seasons') {
+    // Force load initial season data
+    const initialSeason = document.getElementById('seasonSelect').value;
+    loadSeason(initialSeason);
+  }
+}
+
+function loadSeason(seasonId) {
+  fetch(`/get_season_ladder/${seasonId}`)
+    .then(response => response.json())
+    .then(data => {
+      const tbody = document.getElementById('seasonLadderBody');
+      tbody.innerHTML = '';
+      
+      data.forEach((player, index) => {
+        const row = document.createElement('tr');
+        row.className = 'clickable-row';
+        row.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${player.name}</td>
+          <td>${player.mu.toFixed(2)}</td>
+          <td>${player.sigma.toFixed(2)}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    })
+    .catch(error => console.error('Error loading season:', error));
+}
+
+// Existing sorting and click handlers
+document.addEventListener("DOMContentLoaded", () => {
+  // Clickable rows
+  document.querySelectorAll(".clickable-row").forEach(row => {
+    row.addEventListener("click", () => {
+      window.location.href = row.dataset.href;
+    });
+  });
+
+  // Win/Loss table sorting
+  let currentSort = { key: "win_pct", direction: "desc" };
+  document.querySelectorAll(".sortable").forEach(header => {
+    header.addEventListener("click", () => {
+      const key = header.dataset.key;
+      if(currentSort.key === key) {
+        currentSort.direction = currentSort.direction === "desc" ? "asc" : "desc";
+      } else {
+        currentSort.key = key;
+        currentSort.direction = "desc";
+      }
+      sortTable(currentSort.key, currentSort.direction);
+    });
+  });
+});
+
+function sortTable(key, direction) {
+  const tbody = document.getElementById("wlt-body");
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  const colIndex = {played: 2, wins: 3, losses: 4, win_pct: 5}[key];
+
+  rows.sort((a, b) => {
+    const valA = parseFloat(a.children[colIndex].textContent) || 0;
+    const valB = parseFloat(b.children[colIndex].textContent) || 0;
+    return direction === "asc" ? valA - valB : valB - valA;
+  });
+
+  tbody.innerHTML = "";
+  rows.forEach((row, i) => {
+    row.children[0].textContent = i + 1;
+    tbody.appendChild(row);
+  });
+}
+</script>
+{% endblock %}

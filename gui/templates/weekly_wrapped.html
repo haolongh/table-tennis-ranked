@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="wrapped-container">
+    <div class="wrapped-header">
+        <h1>🎉 Your Weekly Wrapped</h1>
+        <p class="wrapped-dates">{{ date_range }}</p>
+    </div>
+
+    <div class="wrapped-stats">
+        <!-- Highest Climber -->
+        <div class="stat-card climber">
+            <div class="stat-icon">🚀</div>
+            <h3>Highest Climber</h3>
+            {% if summary.highest_climber %}
+                <p class="stat-name">{{ summary.highest_climber[1] }}</p>
+                <p class="stat-delta">+{{ "%.1f"|format(summary.highest_climber[2]) }} pts</p>
+            {% else %}
+                <p class="stat-muted">No matches played</p>
+            {% endif %}
+        </div>
+
+        <!-- Biggest Thrower -->
+        <div class="stat-card thrower">
+            <div class="stat-icon">🔻</div>
+            <h3>Biggest Thrower</h3>
+            {% if summary.biggest_thrower %}
+                <p class="stat-name">{{ summary.biggest_thrower[1] }}</p>
+                <p class="stat-delta">{{ "%.1f"|format(summary.biggest_thrower[2]) }} pts</p>
+            {% else %}
+                <p class="stat-muted">No matches played</p>
+            {% endif %}
+        </div>
+
+        <!-- Win Rates -->
+        <div class="stat-card win-rate">
+            <div class="stat-icon">🏆</div>
+            <h3>Highest Win Rate</h3>
+            {% if summary.highest_win_rate %}
+                <p class="stat-name">{{ summary.highest_win_rate[0] }}</p>
+                <p class="stat-delta">{{ "%.1f"|format(summary.highest_win_rate[1] * 100) }}%</p>
+            {% else %}
+                <p class="stat-muted">No wins</p>
+            {% endif %}
+        </div>
+
+        <!-- Most Frequent Match -->
+        <div class="stat-card frequent-match">
+            <div class="stat-icon">⚔️</div>
+            <h3>Most Frequent Matchup</h3>
+            {% if summary.most_frequent_match[0] %}
+                <div class="matchup-header">
+                    <span class="player-name">{{ summary.most_frequent_match[0] }}</span>
+                    <span class="vs-label">VS</span>
+                    <span class="player-name">{{ summary.most_frequent_match[1] }}</span>
+                </div>
+                
+                <div class="total-matches">
+                    <div class="total-label">Total Matches</div>
+                    <div class="total-count">{{ summary.most_frequent_match[2] }}</div>
+                </div>
+        
+                <div class="individual-wins">
+                    <div class="win-block player1">
+                        <div class="win-label">{{ summary.most_frequent_match[0] }}</div>
+                        <div class="win-count">{{ summary.most_frequent_match[3] }}</div>
+                    </div>
+                    <div class="win-block player2">
+                        <div class="win-label">{{ summary.most_frequent_match[1] }}</div>
+                        <div class="win-count">{{ summary.most_frequent_match[4] }}</div>
+                    </div>
+                </div>
+            {% else %}
+                <p class="stat-muted">No matches</p>
+            {% endif %}
+        </div>
+        
+        <style>
+        /* Add these styles to the existing CSS */
+        .matchup-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .player-name {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.2rem;
+        }
+        
+        .vs-label {
+            background: #2d89ef;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        
+        .total-matches {
+            text-align: center;
+            margin: 25px 0;
+            padding: 15px;
+            background: #f8fafd;
+            border-radius: 12px;
+            border: 1px solid #e0eefa;
+        }
+        
+        .total-label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-bottom: 6px;
+        }
+        
+        .total-count {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #2d89ef;
+        }
+        
+        .individual-wins {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .win-block {
+            flex: 1;
+            max-width: 120px;
+            padding: 15px;
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        .win-block.player1 {
+            border: 2px solid #2d89ef;
+        }
+        
+        .win-block.player2 {
+            border: 2px solid #e74c3c;
+        }
+        
+        .win-label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-bottom: 8px;
+        }
+        
+        .win-count {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        @media (max-width: 480px) {
+            .matchup-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .total-count {
+                font-size: 1.4rem;
+            }
+            
+            .individual-wins {
+                flex-direction: column;
+                align-items: center;
+                gap: 15px;
+            }
+            
+            .win-block {
+                max-width: 100%;
+                width: 100%;
+            }
+        }
+        </style>
+
+<style>
+    .wrapped-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 40px 20px;
+    }
+    
+    .wrapped-header {
+        text-align: center;
+        margin-bottom: 40px;
+        padding: 30px;
+        background: #2d89ef;
+        border-radius: 16px;
+        color: white;
+    }
+    
+    .wrapped-header h1 {
+        font-size: 2.5rem;
+        margin-bottom: 8px;
+        font-weight: 600;
+    }
+    
+    .wrapped-dates {
+        color: #cce4ff;
+        font-size: 1.1rem;
+    }
+    
+    .wrapped-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 25px;
+        margin-top: 30px;
+    }
+    
+    .stat-card {
+        background: white;
+        padding: 25px;
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(45,137,239,0.08);
+        text-align: center;
+        transition: transform 0.2s ease;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-3px);
+    }
+    
+    .stat-icon {
+        font-size: 2.5rem;
+        margin-bottom: 15px;
+        color: #2d89ef;
+    }
+    
+    .stat-name {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin: 10px 0;
+        color: #2c3e50;
+    }
+    
+    .stat-delta {
+        font-size: 1.4rem;
+        font-weight: bold;
+        color: #2ecc71;
+        background: #e8f8f0;
+        padding: 8px 15px;
+        border-radius: 20px;
+        display: inline-block;
+    }
+    
+    .thrower .stat-delta {
+        color: #e74c3c;
+        background: #fbe9eb;
+    }
+    
+    .stat-muted {
+        color: #95a5a6;
+        font-style: italic;
+        margin: 20px 0;
+    }
+    
+    .matchup-players {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+        margin: 20px 0;
+    }
+    
+    .player-badge {
+        background: #f4f8fc;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-weight: 500;
+        color: #2d89ef;
+        border: 1px solid #d0e3ff;
+    }
+    
+    .vs {
+        color: #7f8c8d;
+        font-size: 0.9rem;
+    }
+    
+    .match-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-top: 20px;
+    }
+    
+    .match-stat {
+        background: #f8fafd;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid #e0eefa;
+    }
+    
+    .match-stat span {
+        display: block;
+        font-size: 0.9rem;
+        color: #7f8c8d;
+        margin-bottom: 4px;
+    }
+    
+    .match-stat strong {
+        display: block;
+        font-size: 1.1rem;
+        color: #2c3e50;
+        font-weight: 600;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .wrapped-header h1 {
+            font-size: 2rem;
+        }
+        
+        .wrapped-stats {
+            grid-template-columns: 1fr;
+        }
+        
+        .match-stats {
+            grid-template-columns: 1fr;
+        }
+    }
+    </style>
+{% endblock %}

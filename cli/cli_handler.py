@@ -78,6 +78,14 @@ class TableTennisCLI:
         predict_parser.add_argument('id1', type=int, help='First player ID')
         predict_parser.add_argument('id2', type=int, help='Second player ID')  
 
+        weekly_parser = subparsers.add_parser('weekly-wrapped', help='Generate weekly summary stats')
+
+        start_season_parser = subparsers.add_parser('start-new-season', 
+            help='⚠️ Start new season (irreversible)! Current matches become previous season')
+        season_ladder_parser = subparsers.add_parser('season-ladder', 
+            help='Show ladder for a specific season')
+        season_ladder_parser.add_argument('season_id', type=int, help='Season number (e.g., 1)')
+
 
 
     def run(self):
@@ -330,6 +338,79 @@ class TableTennisCLI:
                 print(f"Error: {e}")
             except Exception as e:
                 print(f"An unexpected error occurred: {e}")
+
+        elif args.command == 'weekly-wrapped':
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            days_since_sunday = (today.weekday() + 1) % 7  # Monday is 0
+            last_sunday = today - timedelta(days=days_since_sunday)
+            start_date = last_sunday.replace(hour=0, minute=0, second=0)
+            end_date = start_date + timedelta(days=6, hours=23, minutes=59, seconds=59)  # Fix here
+            
+            summary = self.processor.get_weekly_summary(start_date.isoformat(), end_date.isoformat())  # Convert to ISO here
+            
+            print(f"\n=== Weekly Wrapped ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}) ===")
+            
+            # Highest Climber
+            if summary['highest_climber']:
+                pid, name, delta = summary['highest_climber']
+                print(f"🏆 Highest Climber: {name} (+{delta:.1f} points)")
+            else:
+                print("🏆 Highest Climber: No matches played")
+            
+            # Biggest Thrower
+            if summary['biggest_thrower']:
+                pid, name, delta = summary['biggest_thrower']
+                print(f"💔 Biggest Thrower: {name} ({delta:.1f} points)")
+            else:
+                print("💔 Biggest Thrower: No matches played")
+            
+            # Win Rates
+            if summary['highest_win_rate']:
+                name, wr = summary['highest_win_rate']
+                print(f"🔥 Highest Win Rate: {name} ({wr*100:.1f}%)")
+            else:
+                print("🔥 Highest Win Rate: No wins")
+            
+            if summary['lowest_win_rate']:
+                name, wr = summary['lowest_win_rate']
+                print(f"💩 Lowest Win Rate: {name} ({wr*100:.1f}%)")
+            else:
+                print("💩 Lowest Win Rate: No losses")
+            
+            # Most Frequent Match
+            if summary['most_frequent_match'][0]:
+                p1, p2, cnt, w1, w2 = summary['most_frequent_match']
+                print(f"\n🤼 Most Frequent Match: {p1} vs {p2} ({cnt} times)")
+                print(f"   {p1} wins: {w1} | {p2} wins: {w2}")
+            else:
+                print("\n🤼 Most Frequent Match: No matches")
+
+        elif args.command == 'start-new-season':
+            confirm = input("🚨 This will PERMANENTLY start a new season. Current season matches will be locked. Continue? (y/N): ")
+            if confirm.lower() != 'y':
+                print("Operation cancelled.")
+                return
+            
+            with self.processor.db_handler.connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT value FROM system_settings WHERE key = "current_season"')
+                current = int(cursor.fetchone()[0])
+                new_season = current + 1
+                cursor.execute('''
+                    INSERT INTO system_settings (key, value) 
+                    VALUES ('current_season', ?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                ''', (new_season,))
+                print(f"✅ New season {new_season} started! All future matches will be part of season {new_season}.")
+
+        elif args.command == 'season-ladder':
+            season_id = args.season_id
+            ladder = self.processor.get_season_ladder(season_id)
+            print(f"\nSeason {season_id} Ladder:")
+            print(f"{'Rank':<6} {'Player':<20} {'Rating':<15} {'Uncertainty':<15}")
+            for idx, player in enumerate(ladder, 1):
+                print(f"{idx:<6} {player.name:<20} {player.mu:.1f}{'':<5} ±{player.sigma:.1f}")
 
 
 
