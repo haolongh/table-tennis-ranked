@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>➕ Record a Match</h1>
+
+<form method="POST" action="/submit" class="match-form">
+    <div class="form-group">
+        <label for="player1">Player 1:</label>
+        <select name="player1" required>
+            {% for player in players %}
+              <option value="{{ player.id }}">{{ player.name }}</option>
+            {% endfor %}
+          </select>
+    </div>
+
+    <div class="form-group">
+        <label for="player2">Player 2:</label>
+        <select name="player2" required>
+            {% for player in players %}
+              <option value="{{ player.id }}">{{ player.name }}</option>
+            {% endfor %}
+          </select>
+    </div>
+
+    <div class="form-group">
+        <label for="score1">Player 1 Score:</label>
+        <input type="number" name="score1" min="0" required>
+    </div>
+
+    <div class="form-group">
+        <label for="score2">Player 2 Score:</label>
+        <input type="number" name="score2" min="0" required>
+    </div>
+
+    <button type="submit" class="record-btn">Submit Match</button>
+</form>
+{% endblock %}

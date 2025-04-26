@@ -1,6 +1,9 @@
 # database/db_handler.py
 import sqlite3
+import os
 from contextlib import contextmanager
+
+DB_FILE = os.path.join(os.path.dirname(__file__), '..', 'rankings.db')
 
 class DatabaseHandler:
     def __init__(self, db_name='rankings.db'):
@@ -31,8 +34,14 @@ class DatabaseHandler:
                 player2_id INTEGER NOT NULL,
                 player1_score INTEGER NOT NULL,
                 player2_score INTEGER NOT NULL,
+                season INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY(player1_id) REFERENCES players(player_id) ON DELETE CASCADE,
                 FOREIGN KEY(player2_id) REFERENCES players(player_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS matchups (
@@ -84,3 +93,75 @@ class DatabaseHandler:
         finally:
             if not self.is_memory:
                 conn.close()
+
+def get_rankings():
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT player_id, name, mu, sigma
+            FROM players
+            ORDER BY mu DESC
+        """)
+        players = c.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "mu": row[2],
+            "sigma": row[3],
+            "form": get_player_form(row[0])
+        }
+        for row in players
+    ]
+
+def get_recent_matches():
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT
+                m.match_id,
+                p1.name AS player1_name,
+                p2.name AS player2_name,
+                m.player1_score,
+                m.player2_score
+            FROM matches m
+            JOIN players p1 ON m.player1_id = p1.player_id
+            JOIN players p2 ON m.player2_id = p2.player_id
+            ORDER BY m.match_id DESC
+        """)
+        rows = c.fetchall()
+
+    return [
+        {
+            "match_id": row[0],
+            "player1": row[1],
+            "player2": row[2],
+            "score1": row[3],
+            "score2": row[4],
+        }
+        for row in rows
+    ]
+
+
+def get_player_form(player_id, num_matches=5):
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT player1_id, player2_id, player1_score, player2_score
+            FROM matches
+            WHERE player1_id = ? OR player2_id = ?
+            ORDER BY match_id DESC
+            LIMIT ?
+        """, (player_id, player_id, num_matches))
+        rows = c.fetchall()
+
+    form = []
+    for p1_id, p2_id, p1_score, p2_score in rows:
+        if player_id == p1_id:
+            won = p1_score > p2_score
+        else:
+            won = p2_score > p1_score
+        form.append('W' if won else 'L')
+    return form
+
